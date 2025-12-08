@@ -309,6 +309,96 @@ MAX_CONTENT_LENGTH = 5000  # Increase for longer extracts
 
 Edit `src/research_tools.py` → `analyze_sources()` method to customize how Claude analyzes sources.
 
+## 🚀 Deploying to Railway
+
+This application includes a FastAPI server (`api_server.py`) that can be deployed to Railway.
+
+### Prerequisites
+
+1. A [Railway](https://railway.app) account
+2. Your GitHub repository pushed with all the files
+
+### Deployment Steps
+
+1. **Push to GitHub**
+   ```bash
+   git add .
+   git commit -m "Ready for Railway deployment"
+   git push origin main
+   ```
+
+2. **Create Railway Project**
+   - Go to [railway.app](https://railway.app)
+   - Click "New Project"
+   - Select "Deploy from GitHub repo"
+   - Choose your repository
+
+3. **Configure Environment Variables**
+   
+   In Railway dashboard, go to **Variables** tab and add:
+   
+   ```
+   ANTHROPIC_API_KEY=your_actual_api_key
+   GEMINI_API_KEY=your_actual_gemini_api_key
+   LLM_PROVIDER=anthropic
+   LLM_MODEL=claude-3-5-sonnet-20241022
+   ENVIRONMENT=production
+   ```
+
+   **Optional (for Slack integration):**
+   ```
+   SLACK_BOT_TOKEN=xoxb-...
+   SLACK_APP_TOKEN=xapp-...
+   ```
+
+4. **Deploy**
+   - Railway will automatically detect the `Procfile` and `railway.json`
+   - The app will start with: `uvicorn api_server:app --host 0.0.0.0 --port $PORT`
+   - Wait for deployment to complete
+
+5. **Test Your Deployment**
+   
+   Once deployed, Railway will give you a URL like: `https://your-app.railway.app`
+   
+   Test the health endpoint:
+   ```bash
+   curl https://your-app.railway.app/health
+   ```
+   
+   Test the research endpoint:
+   ```bash
+   curl -X POST https://your-app.railway.app/research \
+     -H "Content-Type: application/json" \
+     -d '{"query": "latest AI trends", "frameworkSource": null}'
+   ```
+
+### Files for Railway Deployment
+
+- **`Procfile`** - Tells Railway how to start the app
+- **`railway.json`** - Railway-specific configuration
+- **`requirements.txt`** - Python dependencies
+- **`.env.example`** - Template for environment variables (reference only)
+
+### Troubleshooting Railway Deployment
+
+**"No start command was found"**
+- Ensure `Procfile` and `railway.json` are committed to git
+- Check that files are in the root directory
+
+**"Module not found" errors**
+- Verify all dependencies are in `requirements.txt`
+- Check Railway build logs for pip install errors
+
+**API returns 500 errors**
+- Check Railway logs for Python errors
+- Verify all environment variables are set correctly
+- Ensure `ANTHROPIC_API_KEY` is valid
+
+**Service account authentication**
+- For Google Drive access, you'll need to add service account credentials
+- In Railway, you can add the JSON content as an environment variable
+- Update code to read from environment variable instead of file
+
 ## 🤝 Contributing
 
 When pushing to GitHub:

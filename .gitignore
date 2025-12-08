@@ -72,6 +72,7 @@ Thumbs.db
 # dotenv and local env files
 .env
 .env.*
+!.env.example
 
 # Credentials and secrets (remove from repo if already committed)
 credentials.json
