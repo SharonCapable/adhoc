@@ -146,8 +146,9 @@ class ReasoningValidator:
     
     @staticmethod
     def _count_source_citations(text: str) -> int:
-        """Count references to sources like [Source 1], (Source 1), etc."""
-        matches = re.findall(r'\[Source\s*\d+\]|\(Source\s*\d+\)', text, re.IGNORECASE)
+        """Count references to sources like [Source 1](url)."""
+        # Matches [Source 1](...), [Source 12](...)
+        matches = re.findall(r'\[Source\s*\d+\]\(.*?\)', text, re.IGNORECASE)
         return len(matches)
     
     @staticmethod

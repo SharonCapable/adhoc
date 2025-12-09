@@ -102,7 +102,7 @@ class ResearchAgent:
     # Node 1: Fetch Research Framework
     def fetch_framework_node(self, state: ResearchState) -> Dict:
         """Load research framework from Google Drive."""
-        print("\n📚 [Node 1] Fetching research framework...")
+        print("\n📚 [Node 1] Fetching research framework...", flush=True)
         
         try:
             framework = self.drive_tool.fetch_research_framework()
@@ -133,7 +133,7 @@ class ResearchAgent:
     # Node 2: Search the Web
     def search_web_node(self, state: ResearchState) -> Dict:
         """Search for relevant sources."""
-        print("\n🔍 [Node 2] Searching the web...")
+        print("\n🔍 [Node 2] Searching the web...", flush=True)
         
         query = state["research_query"]
         
@@ -162,28 +162,37 @@ class ResearchAgent:
     # Node 3: Fetch Full Content from URLs
     def fetch_content_node(self, state: ResearchState) -> Dict:
         """Fetch full content from search result URLs."""
-        print("\n📥 [Node 3] Fetching content from sources...")
+        print("\n📥 [Node 3] Fetching content from sources...", flush=True)
         
         search_results = state.get("search_results", [])
         sources_with_content = []
         
+        success_count = 0
+        fallback_count = 0
+        
         for i, result in enumerate(search_results, 1):
-            print(f"  Fetching {i}/{len(search_results)}: {result['title']}")
+            print(f"  Fetching {i}/{len(search_results)}: {result['title']}", flush=True)
             
             content = self.research_tools.fetch_url_content(
                 result['url'],
                 max_length=Config.MAX_CONTENT_LENGTH
             )
             
+            if content:
+                success_count += 1
+            else:
+                fallback_count += 1
+                content = result.get('summary', '')
+                
             source = {
                 "title": result['title'],
                 "url": result['url'],
                 "summary": result.get('summary', ''),
-                "content": content if content else result.get('summary', '')
+                "content": content
             }
             sources_with_content.append(source)
         
-        print(f"✅ Content fetched from {len(sources_with_content)} sources")
+        print(f"✅ Content fetched from {success_count} sources (fell back to summary for {fallback_count})", flush=True)
         
         return {
             "sources_with_content": sources_with_content,
@@ -193,7 +202,7 @@ class ResearchAgent:
     # Node 4: QA Validation
     def qa_validate_node(self, state: ResearchState) -> Dict:
         """Validate source relevance and check for quality issues."""
-        print("\n✅ [Node 4] Running QA validation...")
+        print("\n✅ [Node 4] Running QA validation...", flush=True)
         
         sources = state.get("sources_with_content", [])
         query = state["research_query"]
@@ -229,7 +238,7 @@ class ResearchAgent:
     # Node 5: Analyze and Synthesize
     def analyze_node(self, state: ResearchState) -> Dict:
         """Analyze sources and generate research findings."""
-        print("\n🧠 [Node 5] Analyzing sources...")
+        print("\n🧠 [Node 5] Analyzing sources...", flush=True)
         
         sources = state.get("sources_with_content", [])
         query = state["research_query"]
@@ -269,7 +278,10 @@ class ResearchAgent:
     # Node 5: Save Output
     def save_output_node(self, state: ResearchState) -> Dict:
         """Save research findings to file with embedded sources and QA report."""
-        print("\n💾 [Node 6] Saving output...")
+        print("\n💾 [Node 6] Saving output...", flush=True)
+        
+        # Ensure output directory exists
+        Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"research_{timestamp}.json"

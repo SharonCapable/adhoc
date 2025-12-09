@@ -20,7 +20,8 @@ class ResearchTools:
         """
         try:
             self.llm = LLMFactory.create_provider(llm_provider)
-            print(f"🤖 Using LLM: {self.llm.get_provider_name()}")
+            self.llm = LLMFactory.create_provider(llm_provider)
+            print(f"🤖 Using LLM: {self.llm.get_provider_name()}", flush=True)
         except Exception as e:
             print(f"❌ Failed to initialize LLM: {e}")
             raise
@@ -36,7 +37,7 @@ class ResearchTools:
         Returns:
             List of search results with titles, URLs, and snippets
         """
-        print(f"🔍 Searching for: '{query}'")
+        print(f"🔍 Searching for: '{query}'", flush=True)
         
         prompt = f"""Search the web for: "{query}"
 
@@ -60,9 +61,9 @@ IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no 
 
         try:
             # Use the configured LLM provider
-            print(f"📡 Sending request to {self.llm.get_provider_name()}...")
+            print(f"📡 Sending request to {self.llm.get_provider_name()}...", flush=True)
             response_text = self.llm.generate(prompt, max_tokens=4000)
-            print(f"✅ Received response ({len(response_text)} chars)")
+            print(f"✅ Received response ({len(response_text)} chars)", flush=True)
             
             # Clean up response (remove markdown if present)
             content = response_text.strip()
@@ -75,7 +76,7 @@ IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no 
             content = content.strip()
             
             # Parse JSON
-            print(f"🔄 Parsing JSON response...")
+            print(f"🔄 Parsing JSON response...", flush=True)
             results = json.loads(content)
 
             # Support multiple response shapes from different LLMs.
@@ -97,7 +98,7 @@ IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no 
             else:
                 parsed_results = []
             
-            print(f"✅ Found {len(parsed_results)} results")
+            print(f"✅ Found {len(parsed_results)} results", flush=True)
             return parsed_results
             
         except json.JSONDecodeError as e:
@@ -171,7 +172,7 @@ IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no 
         Returns:
             Synthesized research findings
         """
-        print(f"🧠 Analyzing {len(sources)} sources...")
+        print(f"🧠 Analyzing {len(sources)} sources...", flush=True)
         
         if not sources:
             return "No sources available to analyze. The web search returned no results."
@@ -184,26 +185,30 @@ IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no 
         framework_section = f"\n\nRESEARCH FRAMEWORK:\n{framework}" if framework else ""
         
         prompt = f"""You are a research analyst. Analyze the following sources to answer this research question:
-
+        
 RESEARCH QUESTION: {research_question}
 {framework_section}
 
 SOURCES:
 {sources_text}
 
-Based on these sources, provide:
-1. Key findings (bullet points)
-2. Common themes or patterns
-3. Important data points or statistics
-4. Gaps in the research
-5. Source reliability assessment
+Based on these sources, provide a comprehensive research report with:
+1. Executive Summary
+2. Key Findings (bullet points)
+3. Detailed Analysis (Themes, Patterns, Data)
+4. Source Reliability Assessment
 
-Be thorough but concise. Cite sources by number [Source 1], [Source 2], etc."""
+FORMATTING RULES:
+- Use clear Markdown formatting with headers (##, ###).
+- You MUST cite sources using clickable Markdown links in this format: [Source N](URL).
+  - Example: "According to [Source 1](https://example.com)..."
+- Ensure every key claim has a citation.
+- Be professional, objective, and thorough."""
 
         try:
-            print(f"📡 Sending analysis request to {self.llm.get_provider_name()}...")
+            print(f"📡 Sending analysis request to {self.llm.get_provider_name()}...", flush=True)
             analysis = self.llm.generate(prompt, max_tokens=4000)
-            print(f"✅ Analysis complete ({len(analysis)} chars)")
+            print(f"✅ Analysis complete ({len(analysis)} chars)", flush=True)
             return analysis
             
         except Exception as e:

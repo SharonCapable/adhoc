@@ -67,6 +67,10 @@ class GoogleDriveTool:
     
     def search_files(self, query: str, max_results: int = 10) -> list:
         """Search for files in Google Drive by name."""
+        if not self.service:
+            print("[WARN] Google Drive service not initialized. Skipping search.")
+            return []
+
         try:
             results = self.service.files().list(
                 q=f"name contains '{query}'",
@@ -128,11 +132,24 @@ class GoogleDriveTool:
         """
         print(f"[SEARCH] Searching for framework: '{framework_name}'")
         
+        # Default framework if search fails or service not active
+        default_framework = """
+        1. Market Overview
+        2. Key Competitors & Feature Comparison
+        3. Pricing Models
+        4. Technical Architecture & Tech Stack
+        5. User Reviews & Pain Points
+        6. Marketing & Growth Strategies
+        """
+        
+        if not self.service:
+            return default_framework
+
         files = self.search_files(framework_name)
         
         if not files:
-            print(f"[ERROR] No files found matching '{framework_name}'")
-            return None
+            print(f"[WARN] No files found matching '{framework_name}'. Using default.")
+            return default_framework
         
         # Use the first matching file
         file = files[0]
@@ -144,8 +161,8 @@ class GoogleDriveTool:
             print(f"[OK] Framework loaded ({len(content)} characters)")
             return content
         else:
-            print("[ERROR] Failed to load framework content")
-            return None
+            print("[ERROR] Failed to load framework content. Using default.")
+            return default_framework
 
 
 # Standalone test function
