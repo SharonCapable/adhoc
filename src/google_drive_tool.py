@@ -74,9 +74,11 @@ class GoogleDriveTool:
 
         try:
             results = self.service.files().list(
-                q=f"name contains '{query}'",
+                q=f"name contains '{query}' and trashed = false",
                 pageSize=max_results,
-                fields="files(id, name, mimeType, createdTime, modifiedTime)"
+                fields="files(id, name, mimeType, createdTime, modifiedTime)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
             
             files = results.get('files', [])

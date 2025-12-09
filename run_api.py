@@ -35,6 +35,16 @@ def main():
         # Get service account credentials from environment or file
         service_account_file = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', 'service-account.json')
         
+        # DEBUG: Check if file exists and what is in the dir
+        cwd = os.getcwd()
+        print(f"[DEBUG] CWD: {cwd}", file=sys.stderr)
+        print(f"[DEBUG] Files in CWD: {os.listdir(cwd)}", file=sys.stderr)
+        if os.path.exists(service_account_file):
+            print(f"[DEBUG] Found service account file: {service_account_file}", file=sys.stderr)
+        else:
+            print(f"[DEBUG] Service account file NOT found: {service_account_file}", file=sys.stderr)
+            print(f"[DEBUG] GOOGLE_SERVICE_ACCOUNT_JSON env var length: {len(os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', ''))}", file=sys.stderr)
+        
         # Initialize agent with service account credentials
         agent = ResearchAgent(
             framework_source=framework_source,

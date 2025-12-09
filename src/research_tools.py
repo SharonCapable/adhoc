@@ -201,14 +201,14 @@ Based on these sources, provide a comprehensive research report with:
 FORMATTING RULES:
 - Use CLEAN formatting. Avoid excessive markdown symbols like '###' or '***'.
 FORMATTING RULES:
-- Use CLEAN formatting with uppercase section labels.
+- STRICTLY NO MARKDOWN SYMBOLS for headers or lists (No '#', No '*', No '-').
+- SECTION HEADERS: Use simple Uppercase text on a new line (e.g., EXECUTIVE SUMMARY).
+- LISTS: Use numbered lists only (1., 2., 3.).
+- BOLDING: Do not use bold tags (**text**). Just write the text.
 - CITATIONS: You MUST use standard Markdown links: [Source N](URL).
   - CORRECT: "Matches [Source 1](https://google.com)" -> Renders as clickable "Source 1".
-  - WRONG: "Source 1 (https://google.com)" -> DO NOT DO THIS.
-  - WRONG: "[Source 1]" without a link -> DO NOT DO THIS.
 - When listing multiple, comma-separate them: ([Source 1](URL), [Source 2](URL)).
-- Failure to hide the URL inside the link syntax is a critical error.
-- Keep the design professional."""
+- Keep it looking like a clean, plain text report."""
 
         try:
             print(f"📡 Sending analysis request to {self.llm.get_provider_name()}...", flush=True)
