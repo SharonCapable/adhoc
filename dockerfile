@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 8000
 
 # Run the API server
-CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > service-account.json && uvicorn api_server:app --host 0.0.0.0 --port 8000
