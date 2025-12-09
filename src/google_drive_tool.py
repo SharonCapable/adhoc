@@ -22,43 +22,21 @@ class GoogleDriveTool:
     def _authenticate(self):
         """Authenticate with Google Drive API."""
         try:
-            # OPTION 1: Use Service Account (Preferred for Server/Docker)
+            # Use Service Account
             if self.service_account_file:
                 if not os.path.exists(self.service_account_file):
-                    raise FileNotFoundError(f"Service account file not found: {self.service_account_file}")
-                
+                    print(f"[WARN] Service account file specified but not found: {self.service_account_file}")
+                    return
+
                 print(f"[INFO] Authenticating with Service Account: {self.service_account_file}")
                 self.creds = service_account.Credentials.from_service_account_file(
                     self.service_account_file, scopes=SCOPES)
                 print(f"[INFO] 📧 Service Account Email: {self.creds.service_account_email}")
-            
-            # OPTION 2: Use OAuth User Credentials (Local Dev Fallback)
-            elif os.path.exists('token.pickle'):
-                with open('token.pickle', 'rb') as token:
-                    self.creds = pickle.load(token)
-            
-            # Refresh user token if expired
-            if self.creds and hasattr(self.creds, 'expired') and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            
-            # If no valid creds yet, try interactive login (only if credentials.json exists)
-            if not self.creds and not self.service_account_file:
-                if os.path.exists('credentials.json'):
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        'credentials.json', SCOPES)
-                    self.creds = flow.run_local_server(port=0)
-                    # Save the credentials for the next run
-                    with open('token.pickle', 'wb') as token:
-                        pickle.dump(self.creds, token)
-                else:
-                    print("[WARN] No authentication method found (no service-account.json or credentials.json)")
-                    return
-
-            if self.creds:
+                
                 self.service = build('drive', 'v3', credentials=self.creds)
                 print("[OK] Google Drive Service built successfully")
             else:
-                print("[ERROR] Failed to obtain credentials")
+                print("[WARN] No service account file provided. Google Drive features will be disabled.")
 
         except Exception as e:
             print(f"[ERROR] Authentication failed: {str(e)}")

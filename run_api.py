@@ -9,10 +9,10 @@ import sys
 import json
 import os
 
-# Redirect all print() to stderr to keep stdout clean for JSON
-import builtins
-_original_print = builtins.print
-builtins.print = lambda *args, **kwargs: _original_print(*args, **kwargs, file=sys.stderr)
+# Helper for detailed logging
+def log(msg):
+    sys.stderr.write(f"{str(msg)}\n")
+    sys.stderr.flush()
 
 from src.research_agent import ResearchAgent
 
@@ -37,13 +37,18 @@ def main():
         
         # DEBUG: Check if file exists and what is in the dir
         cwd = os.getcwd()
-        print(f"[DEBUG] CWD: {cwd}", file=sys.stderr)
-        print(f"[DEBUG] Files in CWD: {os.listdir(cwd)}", file=sys.stderr)
+        log(f"[DEBUG] CWD: {cwd}")
+        try:
+            log(f"[DEBUG] Files in CWD: {os.listdir(cwd)}")
+        except Exception:
+            pass
+
         if os.path.exists(service_account_file):
-            print(f"[DEBUG] Found service account file: {service_account_file}", file=sys.stderr)
+            log(f"[DEBUG] Found service account file: {service_account_file}")
         else:
-            print(f"[DEBUG] Service account file NOT found: {service_account_file}", file=sys.stderr)
-            print(f"[DEBUG] GOOGLE_SERVICE_ACCOUNT_JSON env var length: {len(os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', ''))}", file=sys.stderr)
+            log(f"[DEBUG] Service account file NOT found: {service_account_file}")
+            env_val = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+            log(f"[DEBUG] GOOGLE_SERVICE_ACCOUNT_JSON env var length: {len(env_val)}")
         
         # Initialize agent with service account credentials
         agent = ResearchAgent(
@@ -51,6 +56,19 @@ def main():
             service_account_file=service_account_file if os.path.exists(service_account_file) else None
         )
         
+        # For the agent to log correctly, we need to ensure its print statements go to stderr too.
+        # Since we removed monkey patch, we can re-apply it safely locally or just accept prints go to stderr?
+        # Container logs capture both stdout/stderr, but we need stdout strictly for JSON.
+        # So we MUST redirect stdout.
+        
+        # Re-apply safe redirect for imported modules
+        import builtins
+        _print = builtins.print
+        def safe_print(*args, **kwargs):
+            kwargs['file'] = sys.stderr
+            _print(*args, **kwargs)
+        builtins.print = safe_print
+
         result = agent.run(query)
         
         # Return JSON output - use sys.stdout.write to bypass stderr redirect
