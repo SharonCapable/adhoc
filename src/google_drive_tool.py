@@ -30,6 +30,7 @@ class GoogleDriveTool:
                 print(f"[INFO] Authenticating with Service Account: {self.service_account_file}")
                 self.creds = service_account.Credentials.from_service_account_file(
                     self.service_account_file, scopes=SCOPES)
+                print(f"[INFO] 📧 Service Account Email: {self.creds.service_account_email}")
             
             # OPTION 2: Use OAuth User Credentials (Local Dev Fallback)
             elif os.path.exists('token.pickle'):

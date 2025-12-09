@@ -199,11 +199,16 @@ Based on these sources, provide a comprehensive research report with:
 4. Source Reliability Assessment
 
 FORMATTING RULES:
-- Use clear Markdown formatting with headers (##, ###).
-- You MUST cite sources using clickable Markdown links in this format: [Source N](URL).
-  - Example: "According to [Source 1](https://example.com)..."
-- Ensure every key claim has a citation.
-- Be professional, objective, and thorough."""
+- Use CLEAN formatting. Avoid excessive markdown symbols like '###' or '***'.
+FORMATTING RULES:
+- Use CLEAN formatting with uppercase section labels.
+- CITATIONS: You MUST use standard Markdown links: [Source N](URL).
+  - CORRECT: "Matches [Source 1](https://google.com)" -> Renders as clickable "Source 1".
+  - WRONG: "Source 1 (https://google.com)" -> DO NOT DO THIS.
+  - WRONG: "[Source 1]" without a link -> DO NOT DO THIS.
+- When listing multiple, comma-separate them: ([Source 1](URL), [Source 2](URL)).
+- Failure to hide the URL inside the link syntax is a critical error.
+- Keep the design professional."""
 
         try:
             print(f"📡 Sending analysis request to {self.llm.get_provider_name()}...", flush=True)
