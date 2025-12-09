@@ -1,77 +1,69 @@
-"""Google Drive integration for fetching research framework."""
 import os
-import io
+import pickle
 from typing import Optional
-from google.oauth2.credentials import Credentials
-from google.oauth2 import service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
+import io
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-import pickle
+from google.oauth2 import service_account
 
-from src.config import Config
-
-# Scopes needed for Google Drive read access
+# If modifying these scopes, delete the file token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
 class GoogleDriveTool:
-    """Tool for fetching research framework from Google Drive."""
-    
-    def __init__(self, service_account_file: str = None):
-        """
-        Initialize Google Drive tool.
-        
-        Args:
-            service_account_file: Path to service account JSON file (optional)
-                                 If not provided, falls back to OAuth
-        """
+    def __init__(self, service_account_file=None):
+        self.creds = None
         self.service = None
         self.service_account_file = service_account_file
         self._authenticate()
-    
+
     def _authenticate(self):
-        """Authenticate with Google Drive API using service account or OAuth."""
-        
-        # Try service account first (no expiry!)
-        if self.service_account_file and os.path.exists(self.service_account_file):
-            try:
-                credentials = service_account.Credentials.from_service_account_file(
-                    self.service_account_file,
-                    scopes=SCOPES
-                )
+        """Authenticate with Google Drive API."""
+        try:
+            # OPTION 1: Use Service Account (Preferred for Server/Docker)
+            if self.service_account_file:
+                if not os.path.exists(self.service_account_file):
+                    raise FileNotFoundError(f"Service account file not found: {self.service_account_file}")
                 
-                self.service = build('drive', 'v3', credentials=credentials)
-                print("[OK] Google Drive authenticated with service account")
-                return
-            except Exception as e:
-                print(f"[WARN] Service account auth failed: {e}")
-                print("[INFO] Falling back to OAuth...")
-        
-        # Fallback to OAuth
-        creds = None
-        
-        # Token file stores user's access and refresh tokens
-        if os.path.exists(Config.GOOGLE_TOKEN_PATH):
-            with open(Config.GOOGLE_TOKEN_PATH, 'rb') as token:
-                creds = pickle.load(token)
-        
-        # If no valid credentials, let user log in
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    Config.GOOGLE_CREDENTIALS_PATH, SCOPES
-                )
-                creds = flow.run_local_server(port=0)
+                print(f"[INFO] Authenticating with Service Account: {self.service_account_file}")
+                self.creds = service_account.Credentials.from_service_account_file(
+                    self.service_account_file, scopes=SCOPES)
             
-            # Save credentials for next run
-            with open(Config.GOOGLE_TOKEN_PATH, 'wb') as token:
-                pickle.dump(creds, token)
-        
-        self.service = build('drive', 'v3', credentials=creds)
-        print("[OK] Google Drive authenticated with OAuth")
+            # OPTION 2: Use OAuth User Credentials (Local Dev Fallback)
+            elif os.path.exists('token.pickle'):
+                with open('token.pickle', 'rb') as token:
+                    self.creds = pickle.load(token)
+            
+            # Refresh user token if expired
+            if self.creds and hasattr(self.creds, 'expired') and self.creds.expired and self.creds.refresh_token:
+                self.creds.refresh(Request())
+            
+            # If no valid creds yet, try interactive login (only if credentials.json exists)
+            if not self.creds and not self.service_account_file:
+                if os.path.exists('credentials.json'):
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        'credentials.json', SCOPES)
+                    self.creds = flow.run_local_server(port=0)
+                    # Save the credentials for the next run
+                    with open('token.pickle', 'wb') as token:
+                        pickle.dump(self.creds, token)
+                else:
+                    print("[WARN] No authentication method found (no service-account.json or credentials.json)")
+                    return
+
+            if self.creds:
+                self.service = build('drive', 'v3', credentials=self.creds)
+                print("[OK] Google Drive Service built successfully")
+            else:
+                print("[ERROR] Failed to obtain credentials")
+
+        except Exception as e:
+            print(f"[ERROR] Authentication failed: {str(e)}")
+            raise e
+            
+    # ... rest of your methods (list_files, read_file, etc.)
     
     def search_files(self, query: str, max_results: int = 10) -> list:
         """Search for files in Google Drive by name."""
