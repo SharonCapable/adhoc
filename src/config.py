@@ -35,7 +35,9 @@ class Config:
             raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
         
         if not Path(cls.GOOGLE_CREDENTIALS_PATH).exists():
-            raise ValueError(f"Google credentials not found at {cls.GOOGLE_CREDENTIALS_PATH}")
+            # Just warn, don't raise error, as we might be using service_account passed directly
+            print(f"[WARN] Google credentials not found at {cls.GOOGLE_CREDENTIALS_PATH}")
+            # raise ValueError(f"Google credentials not found at {cls.GOOGLE_CREDENTIALS_PATH}")
         
         # Create output directory if it doesn't exist
         cls.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
