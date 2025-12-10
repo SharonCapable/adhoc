@@ -31,7 +31,7 @@ class GoogleDriveTool:
                 print(f"[INFO] Authenticating with Service Account: {self.service_account_file}")
                 self.creds = service_account.Credentials.from_service_account_file(
                     self.service_account_file, scopes=SCOPES)
-                print(f"[INFO] 📧 Service Account Email: {self.creds.service_account_email}")
+                print(f"[INFO] [EMAIL] Service Account Email: {self.creds.service_account_email}")
                 
                 self.service = build('drive', 'v3', credentials=self.creds)
                 print("[OK] Google Drive Service built successfully")
@@ -129,7 +129,26 @@ class GoogleDriveTool:
         files = self.search_files(framework_name)
         
         if not files:
-            print(f"[WARN] No files found matching '{framework_name}'. Using default.")
+            print(f"[WARN] No files found matching '{framework_name}'.")
+            
+            # DEBUG: List ANY accessible files to verify sharing
+            print("[DEBUG] Listing first 5 accessible files to verify permissions:")
+            try:
+                debug_res = self.service.files().list(
+                    pageSize=5,
+                    fields="files(id, name)",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True
+                ).execute()
+                debug_files = debug_res.get('files', [])
+                for f in debug_files:
+                    print(f"   - Found file: '{f['name']}' (ID: {f['id']})")
+                if not debug_files:
+                    print("   - [WARN] Service account sees ZERO files. Check sharing permissions.")
+            except Exception as e:
+                print(f"   - [DEBUG] Error listing files: {e}")
+
+            print("Using default.")
             return default_framework
         
         # Use the first matching file
