@@ -14,6 +14,11 @@ def log(msg):
     sys.stderr.write(f"{str(msg)}\n")
     sys.stderr.flush()
 
+# KEY FIX: Redirect actual stdout to stderr globally to prevent ANY logs from sticking to JSON output
+# keep a handle to the real stdout to print the final JSON later
+_REAL_STDOUT = sys.stdout
+sys.stdout = sys.stderr
+
 from src.research_agent import ResearchAgent
 
 def main():
@@ -49,6 +54,17 @@ def main():
             log(f"[DEBUG] Service account file NOT found: {service_account_file}")
             env_val = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
             log(f"[DEBUG] GOOGLE_SERVICE_ACCOUNT_JSON env var length: {len(env_val)}")
+            
+            # SELF-HEALING: Write the file if env var exists but file is missing
+            if env_val:
+                log("[INFO] Creating service-account.json from environment variable...")
+                try:
+                    with open(service_account_file, 'w') as f:
+                        f.write(env_val)
+                    log(f"[OK] Successfully created {service_account_file}")
+                except Exception as write_err:
+                    log(f"[ERROR] Failed to write service account file: {write_err}")
+
         
         # Initialize agent with service account credentials
         agent = ResearchAgent(
@@ -56,22 +72,12 @@ def main():
             service_account_file=service_account_file if os.path.exists(service_account_file) else None
         )
         
-        # For the agent to log correctly, we need to ensure its print statements go to stderr too.
-        # Since we removed monkey patch, we can re-apply it safely locally or just accept prints go to stderr?
-        # Container logs capture both stdout/stderr, but we need stdout strictly for JSON.
-        # So we MUST redirect stdout.
-        
-        # Re-apply safe redirect for imported modules
-        import builtins
-        _print = builtins.print
-        def safe_print(*args, **kwargs):
-            kwargs['file'] = sys.stderr
-            _print(*args, **kwargs)
-        builtins.print = safe_print
+        # Remove the re-apply block as global sys.stdout reuse handles it 
+
 
         result = agent.run(query)
         
-        # Return JSON output - use sys.stdout.write to bypass stderr redirect
+        # Return JSON output - use _REAL_STDOUT to ensure it goes to the pipe
         output = {
             'success': True,
             'research_findings': result.get('research_findings', ''),
@@ -83,8 +89,8 @@ def main():
             'validation_warnings': result.get('qa_validation_details', [])
         }
         
-        sys.stdout.write(json.dumps(output) + '\n')
-        sys.stdout.flush()
+        _REAL_STDOUT.write(json.dumps(output) + '\n')
+        _REAL_STDOUT.flush()
         
     except Exception as e:
         import traceback
@@ -93,8 +99,8 @@ def main():
             'traceback': traceback.format_exc(),
             'success': False
         }
-        sys.stdout.write(json.dumps(error_output) + '\n')
-        sys.stdout.flush()
+        _REAL_STDOUT.write(json.dumps(error_output) + '\n')
+        _REAL_STDOUT.flush()
         sys.exit(1)
 
 if __name__ == "__main__":
