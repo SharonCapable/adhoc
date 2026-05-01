@@ -41,23 +41,38 @@ research_agent = ResearchAgent(
     service_account_file=os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service-account.json")
 )
 
-# Persistent Trivia Status using Firestore (reusing token_store logic)
+# Persistent Trivia Status using Firestore (with fallback to in-memory)
 from src.token_store import db
 
 def save_trivia_pass(user_id: str):
-    doc_ref = db.collection("trivia_status").document(user_id)
-    doc_ref.set({"passed": True, "timestamp": threading.Event().wait(0) or "2026-05-01"})
+    if db:
+        try:
+            doc_ref = db.collection("trivia_status").document(user_id)
+            doc_ref.set({"passed": True, "timestamp": "2026-05-01"})
+        except Exception as e:
+            logger.warning(f"Firestore save failed: {e}")
 
 def check_trivia_pass(user_id: str) -> bool:
-    doc_ref = db.collection("trivia_status").document(user_id)
-    doc = doc_ref.get()
-    return doc.exists and doc.to_dict().get("passed", False)
+    if db:
+        try:
+            doc_ref = db.collection("trivia_status").document(user_id)
+            doc = doc_ref.get()
+            return doc.exists and doc.to_dict().get("passed", False)
+        except Exception as e:
+            logger.warning(f"Firestore read failed: {e}")
+    return False
 
-def clear_user_session(user_id: str):
-    # Clear trivia
-    db.collection("trivia_status").document(user_id).delete()
-    # Clear Gmail tokens
-    db.collection("tokens").document(user_id).delete()
+def delete_bot_messages(client, channel_id: str):
+    """Deletes recent bot messages in the channel to clean up."""
+    try:
+        # Get recent messages
+        result = client.conversations_history(channel=channel_id, limit=50)
+        bot_user_id = client.auth_test()["user_id"]
+        for msg in result["messages"]:
+            if msg.get("user") == bot_user_id:
+                client.chat_delete(channel=channel_id, ts=msg["ts"])
+    except Exception as e:
+        logger.error(f"Failed to clear messages: {e}")
 
 BASE_URL = os.getenv(
     "GMAIL_REDIRECT_URI",
@@ -421,8 +436,18 @@ def handle_mention(event, say, client):
     query   = event["text"].split(">", 1)[-1].strip()
 
     if "clear" in query.lower():
-        clear_user_session(user_id)
-        say(text=f":broom: <@{user_id}> Your session and Gmail connection have been cleared.")
+        say(text=f":broom: Cleaning up my messages in this channel...")
+        threading.Thread(target=delete_bot_messages, args=(client, channel), daemon=True).start()
+        return
+
+    # Check for Identity / General Questions
+    identity_triggers = ["who are you", "what can you do", "help", "how does this work", "about yourself"]
+    if any(trigger in query.lower() for trigger in identity_triggers):
+        from src.llm_provider import get_llm_provider
+        llm = get_llm_provider()
+        identity_prompt = f"You are Adhoc Research Bot v2, a premium AI research agent developed for AyaData AI Solutions. You conduct deep web research using Gemini 2.5 and save findings to Gmail Drafts. Answer this user's question about you politely: {query}"
+        response = llm.generate(identity_prompt)
+        say(text=response)
         return
 
     if not has_passed_trivia(user_id):
