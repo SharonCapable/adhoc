@@ -4,6 +4,7 @@ Uses Gemini with Google Search grounding for real web results.
 Falls back to Claude for analysis synthesis.
 """
 import json
+import os
 import requests
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
