@@ -1,419 +1,72 @@
-# 🔬 Research Agent with LangGraph
+# 🔬 Adhoc Research Bot v2
 
-An intelligent research agent that fetches context from Google Drive and conducts web research using Claude AI.
+A high-performance, agentic research assistant powered by **Gemini 2.5 Flash** and **LangGraph**. Designed for precision, speed, and seamless integration into professional workflows.
+
+## 🌟 Key Features
+
+*   **Gemini 2.5 Flash Integration**: Leverages the latest Gemini model for rapid, high-quality analysis.
+*   **Google Search Grounding**: Strictly uses indexed web results (no hallucinations) for cited, verifiable findings.
+*   **Per-User Gmail OAuth**: Users authenticate once; research is saved directly to **their own Gmail drafts** for review and sending.
+*   **Interactive Trivia Gate**: Ensures users have a baseline understanding of AI/ML concepts before granting access.
+*   **Multi-Format Export**: Save findings as Gmail drafts, Markdown files, or formatted documents.
+*   **Fly.io Native**: Optimized for stable, scalable deployment on Fly.io.
+
+---
 
 ## 🏗️ Architecture
 
-```
-┌─────────────┐
-│   Trigger   │  (CLI or Slack)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────────────┐
-│       LangGraph Agent               │
-│  ┌──────────────────────────────┐   │
-│  │ 1. Fetch Framework (Drive)   │   │
-│  └──────────────────────────────┘   │
-│             ▼                        │
-│  ┌──────────────────────────────┐   │
-│  │ 2. Search Web (Claude)       │   │
-│  └──────────────────────────────┘   │
-│             ▼                        │
-│  ┌──────────────────────────────┐   │
-│  │ 3. Fetch Content (URLs)      │   │
-│  └──────────────────────────────┘   │
-│             ▼                        │
-│  ┌──────────────────────────────┐   │
-│  │ 4. Analyze (Claude)          │   │
-│  └──────────────────────────────┘   │
-│             ▼                        │
-│  ┌──────────────────────────────┐   │
-│  │ 5. Save Output (JSON/MD)     │   │
-│  └──────────────────────────────┘   │
-└─────────────────────────────────────┘
+```mermaid
+graph TD
+    A[Slack Mention] --> B{Trivia Gate}
+    B -- Pass --> C[LangGraph Orchestrator]
+    B -- Fail --> D[Trivia Question]
+    C --> E[Grounding Search]
+    E --> F[Gemini 2.5 Analysis]
+    F --> G[Interactive Slack Blocks]
+    G --> H[Gmail Draft / Download]
 ```
 
-## 📋 Prerequisites
+## 🚀 Quick Deployment (Fly.io)
 
-1. **Python 3.10+**
-2. **Claude API Key** (from Anthropic)
-3. **Google Cloud Account** (for Drive API)
-4. **Slack Workspace** (optional, for Slack trigger)
+### 1. Secrets Configuration
+Set the following secrets in your Fly.io dashboard:
 
-## 🚀 Quick Start
+| Secret | Description |
+| :--- | :--- |
+| `GEMINI_API_KEY` | Your Google AI Studio API key |
+| `ANTHROPIC_API_KEY` | (Optional) Fallback Claude key |
+| `SLACK_BOT_TOKEN` | Slack Bot User OAuth Token (`xoxb-...`) |
+| `SLACK_APP_TOKEN` | Slack App-Level Token (`xapp-...`) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON content of your Service Account |
+| `GMAIL_CLIENT_ID` | Google OAuth Web Client ID |
+| `GMAIL_CLIENT_SECRET` | Google OAuth Web Client Secret |
+| `GMAIL_REDIRECT_URI` | `https://your-app.fly.dev/auth/gmail/callback` |
 
-### 1. Clone and Setup
-
+### 2. Deploy
 ```bash
-# Create project directory
-mkdir adhoc-research
-cd adhoc-research
-
-# Create virtual environment
-python -m venv adhoc
-source adhoc/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+flyctl deploy
 ```
 
-### 2. Configure Environment
-
-```bash
-# Copy template
-cp .env.template .env
-
-# Edit .env and add your API keys
-nano .env  # or use your favorite editor
-```
-
-**Required in .env:**
-```
-ANTHROPIC_API_KEY=your_claude_api_key
-GOOGLE_CREDENTIALS_PATH=credentials.json
-```
-
-### 3. Setup Google Drive API
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project (or select existing)
-3. Enable **Google Drive API**
-4. Create **OAuth 2.0 credentials** (Desktop app)
-5. Download credentials and save as `credentials.json` in project root
-
-### 4. Create Output Directory
-
-```bash
-mkdir -p data/outputs
-```
-
-### 5. Test the Agent
-
-**Option A: CLI Mode (Terminal)**
-
-```bash
-python run_cli.py
-```
-
-Then enter your research query when prompted:
-```
-🔍 Enter your research query: what are the latest AI trends in education?
-```
-
-**Option B: Slack Mode**
-
-First, setup your Slack bot:
-
-1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-2. Create New App → From Scratch
-3. Add **Bot Token Scopes**:
-   - `chat:write`
-   - `app_mentions:read`
-   - `im:history`
-   - `im:read`
-4. Enable **Socket Mode** (get App-Level Token)
-5. Install app to workspace
-6. Copy tokens to `.env`:
-   ```
-   SLACK_BOT_TOKEN=xoxb-...
-   SLACK_APP_TOKEN=xapp-...
-   ```
-
-Then run:
-```bash
-python run_slack.py
-```
-
-In Slack, mention the bot:
-```
-@ResearchBot what are the latest AI trends in education?
-```
-
-Or DM the bot:
-```
-research AI trends in education
-```
+---
 
 ## 📁 Project Structure
 
-```
-research-agent/
-├── .env                    # Your API keys (DO NOT COMMIT)
-├── .env.template          # Template for environment variables
-├── .gitignore            # Git ignore rules
-├── requirements.txt      # Python dependencies
-├── README.md            # This file
-│
-├── run_cli.py           # Option A: Terminal trigger
-├── run_slack.py         # Option B: Slack trigger
-│
-├── src/
-│   ├── config.py              # Configuration management
-│   ├── agent_state.py         # State definition for LangGraph
-│   ├── research_agent.py      # Main LangGraph agent
-│   ├── google_drive_tool.py   # Google Drive integration
-│   └── research_tools.py      # Web search & fetch tools
-│
-└── data/
-    └── outputs/              # Research results saved here
-        ├── research_*.json   # JSON format
-        └── research_*.md     # Markdown format
-```
-
-## 🔧 How It Works
-
-### The Flow (LangGraph)
-
-The agent follows a sequential workflow:
-
-1. **Fetch Framework** → Loads research guidelines from Google Drive
-2. **Search Web** → Uses Claude to search for relevant sources
-3. **Fetch Content** → Downloads full content from URLs
-4. **Analyze** → Claude synthesizes findings based on framework
-5. **Save Output** → Stores results as JSON and Markdown
-
-### State Management
-
-Each node in the graph reads from and writes to a shared `ResearchState`:
-
-```python
-{
-  "research_query": "...",
-  "framework_content": "...",
-  "search_results": [...],
-  "sources_with_content": [...],
-  "research_findings": "...",
-  "output_path": "..."
-}
-```
-
-## 🎯 Usage Examples
-
-### CLI Mode
-
-```bash
-python run_cli.py
-```
-
-```
-🔍 Enter your research query: market analysis for sourcing products in Ghana
-```
-
-The agent will:
-1. Load your research framework from Google Drive
-2. Search for relevant sources
-3. Fetch and analyze content
-4. Save results to `data/outputs/`
-
-### Slack Mode
-
-```bash
-python run_slack.py
-```
-
-In Slack:
-```
-@ResearchBot analyze the current state of renewable energy in West Africa
-```
-
-Bot will:
-- Acknowledge your request
-- Run the research pipeline
-- Reply with findings in the thread
-
-## 📤 Output Format
-
-### JSON Output (`research_TIMESTAMP.json`)
-
-```json
-{
-  "research_query": "...",
-  "timestamp": "20241012_143022",
-  "framework_used": true,
-  "sources": [
-    {
-      "title": "...",
-      "url": "...",
-      "content": "..."
-    }
-  ],
-  "findings": "..."
-}
-```
-
-### Markdown Output (`research_TIMESTAMP.md`)
-
-```markdown
-# Research Report
-
-**Query:** Your research question
-
-**Date:** 2024-10-12 14:30:22
+*   `src/research_agent.py`: Core LangGraph logic and state orchestration.
+*   `src/research_tools.py`: Gemini + Google Search grounding tool.
+*   `src/token_store.py`: Firestore-backed persistence for user OAuth tokens.
+*   `run_slack.py`: Slack bot interface with Trivia Gate and Block Kit UI.
+*   `api_server.py`: FastAPI server handling OAuth callbacks.
+*   `entrypoint.sh`: Container startup script for Fly.io.
 
 ---
 
-[Analysis and findings here...]
+## 🔐 Security & Privacy
+
+*   **No Data Retention**: Research is ephemeral; findings are sent to Slack or saved to the user's Gmail.
+*   **OAuth Security**: The bot only requests `gmail.compose` scopes—it can create drafts but cannot read your existing emails.
+*   **Firestore Encryption**: User tokens are stored securely in your Firebase project.
 
 ---
 
-## Sources
-
-1. [Source Title](url)
-2. [Source Title](url)
-```
-
-## 🔐 Security Notes
-
-- **.env file** contains sensitive API keys → **NEVER commit to git**
-- **credentials.json** is your Google OAuth credentials → **NEVER commit to git**
-- **token.json** stores OAuth tokens → **NEVER commit to git**
-- All these are in `.gitignore` by default
-
-## 🐛 Troubleshooting
-
-### "ANTHROPIC_API_KEY not found"
-- Make sure `.env` file exists with your API key
-- Check that you copied `.env.template` to `.env`
-
-### "Google credentials not found"
-- Download OAuth credentials from Google Cloud Console
-- Save as `credentials.json` in project root
-
-### "No module named 'langchain'"
-- Make sure virtual environment is activated
-- Run `pip install -r requirements.txt`
-
-### Slack bot not responding
-- Check bot is installed to workspace
-- Verify tokens in `.env`
-- Make sure Socket Mode is enabled
-- Bot needs to be mentioned or in DM
-
-## 📝 Customization
-
-### Change Research Depth
-
-Edit `src/config.py`:
-```python
-MAX_SEARCH_RESULTS = 10  # Increase for more sources
-MAX_CONTENT_LENGTH = 5000  # Increase for longer extracts
-```
-
-### Modify Research Framework
-
-1. Update your Google Drive document
-2. Agent will fetch latest version on next run
-
-### Add Custom Analysis
-
-Edit `src/research_tools.py` → `analyze_sources()` method to customize how Claude analyzes sources.
-
-## 🚀 Deploying to Railway
-
-This application includes a FastAPI server (`api_server.py`) that can be deployed to Railway.
-
-### Prerequisites
-
-1. A [Railway](https://railway.app) account
-2. Your GitHub repository pushed with all the files
-
-### Deployment Steps
-
-1. **Push to GitHub**
-   ```bash
-   git add .
-   git commit -m "Ready for Railway deployment"
-   git push origin main
-   ```
-
-2. **Create Railway Project**
-   - Go to [railway.app](https://railway.app)
-   - Click "New Project"
-   - Select "Deploy from GitHub repo"
-   - Choose your repository
-
-3. **Configure Environment Variables**
-   
-   In Railway dashboard, go to **Variables** tab and add:
-   
-   ```
-   ANTHROPIC_API_KEY=your_actual_api_key
-   GEMINI_API_KEY=your_actual_gemini_api_key
-   LLM_PROVIDER=anthropic
-   LLM_MODEL=claude-3-5-sonnet-20241022
-   ENVIRONMENT=production
-   ```
-
-   **Optional (for Slack integration):**
-   ```
-   SLACK_BOT_TOKEN=xoxb-...
-   SLACK_APP_TOKEN=xapp-...
-   ```
-
-4. **Deploy**
-   - Railway will automatically detect the `Procfile` and `railway.json`
-   - The app will start with: `uvicorn api_server:app --host 0.0.0.0 --port $PORT`
-   - Wait for deployment to complete
-
-5. **Test Your Deployment**
-   
-   Once deployed, Railway will give you a URL like: `https://your-app.railway.app`
-   
-   Test the health endpoint:
-   ```bash
-   curl https://your-app.railway.app/health
-   ```
-   
-   Test the research endpoint:
-   ```bash
-   curl -X POST https://your-app.railway.app/research \
-     -H "Content-Type: application/json" \
-     -d '{"query": "latest AI trends", "frameworkSource": null}'
-   ```
-
-### Files for Railway Deployment
-
-- **`Procfile`** - Tells Railway how to start the app
-- **`railway.json`** - Railway-specific configuration
-- **`requirements.txt`** - Python dependencies
-- **`.env.example`** - Template for environment variables (reference only)
-
-### Troubleshooting Railway Deployment
-
-**"No start command was found"**
-- Ensure `Procfile` and `railway.json` are committed to git
-- Check that files are in the root directory
-
-**"Module not found" errors**
-- Verify all dependencies are in `requirements.txt`
-- Check Railway build logs for pip install errors
-
-**API returns 500 errors**
-- Check Railway logs for Python errors
-- Verify all environment variables are set correctly
-- Ensure `ANTHROPIC_API_KEY` is valid
-
-**Service account authentication**
-- For Google Drive access, you'll need to add service account credentials
-- In Railway, you can add the JSON content as an environment variable
-- Update code to read from environment variable instead of file
-
-## 🤝 Contributing
-
-When pushing to GitHub:
-1. Ensure `.env` is in `.gitignore`
-2. Remove any sensitive data
-3. Test with fresh clone
-
-## 📄 License
-
-MIT License - feel free to use and modify!
-
----
-
-**Built with:**
-- [LangChain](https://langchain.com) - LLM framework
-- [LangGraph](https://langchain.com/langgraph) - Agent orchestration
-- [Claude](https://anthropic.com) - AI research & analysis
-- [Slack Bolt](https://slack.dev/bolt-python/) - Slack integration
+## 📝 License
+MIT License - Developed for **AyaData AI Solutions**.

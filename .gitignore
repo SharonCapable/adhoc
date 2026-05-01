@@ -1,13 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -19,84 +16,27 @@ lib64/
 parts/
 sdist/
 var/
+wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-pip-wheel-metadata/
-share/python-wheels/
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# Secrets & Environment
+.env
+fly_secrets.tmp
+service-account.json
+credentials.json
+token.json
+*.json
 
-# Unit test / coverage
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
+# Exceptions for necessary JSON files
+!railway.json
 
-# Pyenv
-.python-version
-
-# Virtual environments
-env/
-venv/
-ENV/
-.venv/
-.ENV/
-env.bak/
-venv.bak/
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
-
-# IDEs and editors
+# IDEs
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
 
-# OS generated
-.DS_Store
-Thumbs.db
-
-# dotenv and local env files
-.env
-.env.*
-!.env.example
-
-# Credentials and secrets (remove from repo if already committed)
-credentials.json
-secrets.json
-token.json
-service-account.json
-*.key
-*.pem
-
-# Data outputs and generated files
-data/outputs/
+# Data & Logs
+data/
 outputs/
-tmp/
-temp/
 *.log
-
-# Compiled Python files
-*.pyc
-*.pyo
-*.pyd
-
-# Mypy
-.mypy_cache/
-
-# Other
-__pycache__/
-
