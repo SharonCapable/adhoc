@@ -1,29 +1,26 @@
-# Core LangChain & LangGraph
+# Core
 langchain>=0.1.0
 langgraph>=0.0.20
 langchain-anthropic>=0.1.1
+google-genai
+google-generativeai
+google-api-python-client
 
-# Google Drive API
-google-api-python-client>=2.108.0
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.0
+# Google Auth & Drive
+google-auth-httplib2
+google-auth-oauthlib
+google-auth
 
 # Slack Bot
-slack-bolt>=1.18.0
+slack-bolt
+
+# Database & Storage
+firebase-admin
 
 # Utilities
-python-dotenv>=1.0.0
-requests>=2.31.0
-pydantic>=2.5.0
-
-# Parsing
-beautifulsoup4>=4.12.2
-
-# API Server
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-
-# Agent dependencies
-anthropic
-google-generativeai
-firebase-admin
+python-dotenv
+requests
+beautifulsoup4
+uvicorn
+fastapi
+python-multipart

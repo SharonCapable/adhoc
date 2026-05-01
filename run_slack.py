@@ -41,6 +41,24 @@ research_agent = ResearchAgent(
     service_account_file=os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service-account.json")
 )
 
+# Persistent Trivia Status using Firestore (reusing token_store logic)
+from src.token_store import db
+
+def save_trivia_pass(user_id: str):
+    doc_ref = db.collection("trivia_status").document(user_id)
+    doc_ref.set({"passed": True, "timestamp": threading.Event().wait(0) or "2026-05-01"})
+
+def check_trivia_pass(user_id: str) -> bool:
+    doc_ref = db.collection("trivia_status").document(user_id)
+    doc = doc_ref.get()
+    return doc.exists and doc.to_dict().get("passed", False)
+
+def clear_user_session(user_id: str):
+    # Clear trivia
+    db.collection("trivia_status").document(user_id).delete()
+    # Clear Gmail tokens
+    db.collection("tokens").document(user_id).delete()
+
 BASE_URL = os.getenv(
     "GMAIL_REDIRECT_URI",
     "https://adhoc-research-bot.fly.dev/auth/gmail/callback"
@@ -202,7 +220,13 @@ pending_research: dict = {}  # action_key → { findings, query, channel, ... }
 # ─────────────────────────────────────────────────────────────
 
 def has_passed_trivia(user_id: str) -> bool:
-    return trivia_state.get(user_id, {}).get("passed", False)
+    # Check in-memory first, then Firestore
+    if trivia_state.get(user_id, {}).get("passed"):
+        return True
+    if check_trivia_pass(user_id):
+        trivia_state[user_id] = {"passed": True}
+        return True
+    return False
 
 
 def send_trivia(client, channel: str, user_id: str):
@@ -357,12 +381,13 @@ def handle_trivia_answer(ack, body, client):
     if chosen == correct:
         state["passed"] = True
         trivia_state[user_id] = state
+        save_trivia_pass(user_id)  # Persist to Firestore
         client.chat_update(
             channel=channel, ts=message_ts,
             blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": (
                 f":white_check_mark: *Correct!* Option {correct}.\n\n_{explanation}_\n\n"
-                f":rocket: *Access granted.* Try:\n"
-                f"> @adhoc what are the latest trends in African language ASR?"
+                f":rocket: *Access granted.* You are now cleared for all future sessions.\n"
+                f"Try asking me anything now!"
             )}}],
             text="Correct! Access granted."
         )
@@ -395,8 +420,9 @@ def handle_mention(event, say, client):
     channel = event["channel"]
     query   = event["text"].split(">", 1)[-1].strip()
 
-    if not query:
-        say(text=f"<@{user_id}> Try: `@adhoc what are the trends in African language ASR?`")
+    if "clear" in query.lower():
+        clear_user_session(user_id)
+        say(text=f":broom: <@{user_id}> Your session and Gmail connection have been cleared.")
         return
 
     if not has_passed_trivia(user_id):
@@ -404,16 +430,26 @@ def handle_mention(event, say, client):
         send_trivia(client, channel, user_id)
         return
 
+    # If it's just a greeting, don't start research
+    if query.lower() in ["hello", "hi", "hey"]:
+        say(text=f"Hello <@{user_id}>! I'm ready for research. What's on your mind?")
+        return
+
+    # Post initial message and handle the rest in a THREAD to avoid channel noise
     ack_msg = client.chat_postMessage(
         channel=channel,
-        text=f":hourglass_flowing_sand: Researching *{query}*... results coming up."
+        text=f":hourglass_flowing_sand: Researching *{query}*... Check the thread for progress."
     )
+    thread_ts = ack_msg["ts"]
 
     def do_research():
         try:
+            # We'll simulate log updates in the thread
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="🔍 Connecting to Gemini 2.5 + Google Search Index...")
+            
             result   = research_agent.run(query)
             findings = result.get("research_findings", "No findings generated.")
-            key      = f"{user_id}_{ack_msg['ts']}"
+            key      = f"{user_id}_{thread_ts}"
             pending_research[key] = {
                 "findings":    findings,
                 "query":       query,
@@ -421,14 +457,17 @@ def handle_mention(event, say, client):
                 "output_path": result.get("output_path", ""),
                 "user_id":     user_id,
             }
+            
+            # Post final results as a new message in the thread
             client.chat_postMessage(
                 channel=channel,
+                thread_ts=thread_ts,
                 blocks=research_blocks(query, findings, key),
                 text=f"Research complete: {query}"
             )
         except Exception as e:
             logger.error(f"Research error: {e}", exc_info=True)
-            client.chat_postMessage(channel=channel,
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts,
                                     text=f":x: Research failed: `{str(e)[:200]}`")
 
     threading.Thread(target=do_research, daemon=True).start()
@@ -652,6 +691,8 @@ def handle_followup_submit(ack, body, client):
 
 @app.event("message")
 def handle_message(body, logger):
+    # Log the message type to the terminal to confirm connectivity
+    print(f"DEBUG: Received event: {body.get('event', {}).get('type')}")
     logger.debug(body)
 
 
