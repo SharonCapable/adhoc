@@ -69,7 +69,7 @@ class GeminiProvider(BaseLLMProvider):
     
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.model = "gemini-2.5-flash"  # Updated model name
+        self.model = os.getenv("LLM_MODEL", "gemini-2.5-flash")
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
     
     def generate(self, prompt: str, max_tokens: int = 4000) -> str:

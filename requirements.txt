@@ -26,3 +26,4 @@ uvicorn[standard]>=0.24.0
 # Agent dependencies
 anthropic
 google-generativeai
+firebase-admin

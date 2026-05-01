@@ -91,7 +91,17 @@ class ResearchAgent:
         # Define the flow (edges)
         workflow.set_entry_point("fetch_framework")
         workflow.add_edge("fetch_framework", "search_web")
-        workflow.add_edge("search_web", "fetch_content")
+        
+        # Conditional edge: Only proceed if we found sources
+        workflow.add_conditional_edges(
+            "search_web",
+            self.should_continue_after_search,
+            {
+                "continue": "fetch_content",
+                "stop": "save_output"
+            }
+        )
+        
         workflow.add_edge("fetch_content", "qa_validate")
         workflow.add_edge("qa_validate", "analyze")
         workflow.add_edge("analyze", "save_output")
@@ -133,7 +143,7 @@ class ResearchAgent:
     # Node 2: Search the Web
     def search_web_node(self, state: ResearchState) -> Dict:
         """Search for relevant sources."""
-        print("\n🔍 [Node 2] Searching the web...", flush=True)
+        print("\n🔍 [Node 2] Searching the web (Strict Google Index)...", flush=True)
         
         query = state["research_query"]
         
@@ -143,7 +153,15 @@ class ResearchAgent:
                 num_results=Config.MAX_SEARCH_RESULTS
             )
             
-            print(f"✅ Found {len(results)} sources")
+            if not results:
+                print("⚠️  No sources found in Google Search index. Stopping.")
+                return {
+                    "search_results": [],
+                    "status": "no_results_found",
+                    "research_findings": "No research was performed because no relevant sources were found in the Google Search index. To maintain data integrity, no synthesis was attempted."
+                }
+
+            print(f"✅ Found {len(results)} validated sources")
             for i, r in enumerate(results, 1):
                 print(f"  {i}. {r['title']}")
             
@@ -158,6 +176,12 @@ class ResearchAgent:
                 "status": "search_error",
                 "error_message": str(e)
             }
+
+    def should_continue_after_search(self, state: ResearchState) -> str:
+        """Determine if we should continue fetching content."""
+        if not state.get("search_results") or state.get("status") == "no_results_found":
+            return "stop"
+        return "continue"
     
     # Node 3: Fetch Full Content from URLs
     def fetch_content_node(self, state: ResearchState) -> Dict:

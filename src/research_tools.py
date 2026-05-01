@@ -1,4 +1,8 @@
-"""Research tools using any LLM provider (Claude, Gemini, OpenAI, etc.)."""
+"""
+Research Tools — v2
+Uses Gemini with Google Search grounding for real web results.
+Falls back to Claude for analysis synthesis.
+"""
 import json
 import requests
 from typing import List, Dict, Optional
@@ -7,241 +11,185 @@ from bs4 import BeautifulSoup
 from src.config import Config
 from src.llm_provider import LLMFactory
 
+
+class GeminiGroundedSearch:
+    """
+    Calls Gemini with Google Search grounding enabled.
+    This gives real, cited search results rather than LLM-hallucinated URLs.
+    Think of it like giving Gemini a live browser tab — it actually searches,
+    then writes up what it found with source citations baked in.
+    """
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        # Defaults to gemini-2.5-flash but can be overridden via env var
+        self.model = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+
+    def search(self, query: str, num_results: int = 5) -> List[Dict]:
+        """
+        Search with Gemini + Google Search grounding.
+        Strictly returns sources from the Google Search index metadata.
+        """
+        prompt = (
+            f"Search for: \"{query}\"\n\n"
+            f"Identify the top {num_results} high-quality sources from the search results. "
+            f"For each source, provide a 2-3 sentence summary of its relevance to the query."
+        )
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}],   # ← grounding tool
+            "generationConfig": {
+                "maxOutputTokens": 2048,
+                "temperature": 0.0, # Minimum temperature for grounding stability
+            }
+        }
+
+        try:
+            resp = requests.post(
+                f"{self.url}?key={self.api_key}",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=30
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return []
+
+            # STRICT EXTRACTION: Only use URLs from groundingMetadata
+            # This prevents the LLM from "remembering" or "formulating" old URLs
+            grounding_meta = candidates[0].get("groundingMetadata", {})
+            grounding_chunks = grounding_meta.get("groundingChunks", [])
+            
+            results = []
+            for chunk in grounding_chunks:
+                web = chunk.get("web", {})
+                if web.get("uri") and web.get("title"):
+                    # Avoid duplicates
+                    if not any(r["url"] == web["uri"] for r in results):
+                        results.append({
+                            "title": web["title"],
+                            "url": web["uri"],
+                            "summary": "Source provided by Google Search index."
+                        })
+
+            print(f"[Gemini Grounded Search] Found {len(results)} validated sources", flush=True)
+            return results[:num_results]
+
+        except Exception as e:
+            print(f"[Gemini Grounded Search] Error: {e}")
+            return []
+
+
 class ResearchTools:
-    """Tools for conducting web research using any LLM provider."""
-    
+    """
+    Research tools pipeline.
+    Search:   Gemini 2.0 Flash with Google Search grounding (STRICTLY real URLs)
+    Analysis: Configurable LLM (Claude recommended for synthesis quality)
+    """
+
     def __init__(self, llm_provider: str = None):
-        """
-        Initialize research tools.
-        
-        Args:
-            llm_provider: LLM provider to use ('claude', 'gemini', 'openai', 'ollama')
-                         If None, uses the one configured in .env
-        """
+        gemini_key = Config.GEMINI_API_KEY if hasattr(Config, "GEMINI_API_KEY") else None
+        import os
+        gemini_key = gemini_key or os.getenv("GEMINI_API_KEY")
+
+        if gemini_key:
+            self.searcher = GeminiGroundedSearch(gemini_key)
+            print("🔍 Search: Gemini 2.0 Flash + Google Search grounding (Strict Mode)", flush=True)
+        else:
+            self.searcher = None
+            print("❌ ERROR: GEMINI_API_KEY not set. Search disabled.", flush=True)
+
         try:
             self.llm = LLMFactory.create_provider(llm_provider)
-            self.llm = LLMFactory.create_provider(llm_provider)
-            print(f"🤖 Using LLM: {self.llm.get_provider_name()}", flush=True)
+            print(f"🤖 Analysis LLM: {self.llm.get_provider_name()}", flush=True)
         except Exception as e:
-            print(f"❌ Failed to initialize LLM: {e}")
+            print(f"❌ Failed to initialise analysis LLM: {e}")
             raise
-    
+
     def search_web(self, query: str, num_results: int = 5) -> List[Dict]:
         """
-        Use LLM to search the web for information.
-        
-        Args:
-            query: Search query
-            num_results: Number of results to return
-            
-        Returns:
-            List of search results with titles, URLs, and snippets
+        Search the web using Gemini grounding. 
+        NO LLM FALLBACK: If no real URLs are found, returns an empty list.
         """
-        print(f"🔍 Searching for: '{query}'", flush=True)
+        if not self.searcher:
+            print("[Search] Searcher not initialized. Check API keys.")
+            return []
+
+        results = self.searcher.search(query, num_results)
+        if not results:
+            print(f"[Search] No real results found for: '{query}' in Google index.", flush=True)
         
-        prompt = f"""Search the web for: "{query}"
+        return results
 
-Provide exactly {num_results} relevant sources. For each source, return:
-1. Title of the page
-2. URL
-3. Brief summary (2-3 sentences)
 
-Format your response as JSON:
-{{
-  "results": [
-    {{
-      "title": "...",
-      "url": "...",
-      "summary": "..."
-    }}
-  ]
-}}
-
-IMPORTANT: Your response must be ONLY valid JSON, nothing else. No markdown, no explanations."""
-
-        try:
-            # Use the configured LLM provider
-            print(f"📡 Sending request to {self.llm.get_provider_name()}...", flush=True)
-            response_text = self.llm.generate(prompt, max_tokens=4000)
-            print(f"✅ Received response ({len(response_text)} chars)", flush=True)
-            
-            # Clean up response (remove markdown if present)
-            content = response_text.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-            
-            # Parse JSON
-            print(f"🔄 Parsing JSON response...", flush=True)
-            results = json.loads(content)
-
-            # Support multiple response shapes from different LLMs.
-            # Some LLMs may return a dict with a 'results' key, others may return
-            # a list of result objects directly. Handle both to avoid AttributeError.
-            parsed_results = []
-            if isinstance(results, dict):
-                parsed_results = results.get('results', [])
-            elif isinstance(results, list):
-                # If it's a list of result dicts, use it directly
-                if results and isinstance(results[0], dict) and any(k in results[0] for k in ('title', 'url', 'summary')):
-                    parsed_results = results
-                # If it's a single-element list that contains a dict with 'results'
-                elif len(results) == 1 and isinstance(results[0], dict) and 'results' in results[0]:
-                    parsed_results = results[0].get('results', [])
-                else:
-                    # Unknown list format; attempt to use it as-is
-                    parsed_results = results
-            else:
-                parsed_results = []
-            
-            print(f"✅ Found {len(parsed_results)} results", flush=True)
-            return parsed_results
-            
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing error: {e}")
-            print(f"📄 Raw response preview: {response_text[:200] if 'response_text' in locals() else 'No response'}")
-            return []
-        except AttributeError as e:
-            print(f"❌ Attribute error: {e}")
-            print(f"💡 LLM object type: {type(self.llm)}")
-            print(f"💡 LLM has generate method: {hasattr(self.llm, 'generate')}")
-            return []
-        except Exception as e:
-            print(f"❌ Search error: {type(e).__name__}: {e}")
-            import traceback
-            print("📋 Full traceback:")
-            traceback.print_exc()
-            return []
-    
     def fetch_url_content(self, url: str, max_length: int = 5000) -> Optional[str]:
-        """
-        Fetch content from a URL and extract text.
-        
-        Args:
-            url: URL to fetch
-            max_length: Maximum characters to return
-            
-        Returns:
-            Extracted text content
-        """
+        """Fetch and extract text content from a URL."""
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Research Agent)'
-            }
+            headers = {"User-Agent": "Mozilla/5.0 (Adhoc Research Bot)"}
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            
-            # Parse HTML - use html.parser (built-in, no C compiler needed)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            
-            # Get text
-            text = soup.get_text()
-            
-            # Clean up text
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = ' '.join(chunk for chunk in chunks if chunk)
-            
-            # Truncate if needed
-            if len(text) > max_length:
-                text = text[:max_length] + "..."
-            
-            return text
-            
+            soup = BeautifulSoup(response.content, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = " ".join(soup.get_text().split())
+            return text[:max_length] + ("..." if len(text) > max_length else "")
         except Exception as e:
-            print(f"❌ Error fetching {url}: {e}")
+            print(f"[Fetch] Error fetching {url}: {e}")
             return None
-    
+
     def analyze_sources(self, sources: List[Dict], research_question: str, framework: str = "") -> str:
         """
-        Use LLM to analyze multiple sources and extract key information.
-        
-        Args:
-            sources: List of sources with content
-            research_question: The research question being answered
-            framework: Research framework guidelines (optional)
-            
-        Returns:
-            Synthesized research findings
+        Synthesise sources into a structured research report.
+        Uses the analysis LLM (Claude by default for quality).
         """
-        print(f"🧠 Analyzing {len(sources)} sources...", flush=True)
-        
+        print(f"[Analyze] Synthesising {len(sources)} sources...", flush=True)
+
         if not sources:
-            return "No sources available to analyze. The web search returned no results."
-        
+            return "No sources available. The search returned no results."
+
         sources_text = "\n\n".join([
-            f"SOURCE {i+1}: {s['title']}\nURL: {s['url']}\nCONTENT: {s.get('content', s.get('summary', ''))}"
+            f"SOURCE {i+1}: {s['title']}\nURL: {s['url']}\nCONTENT: {s.get('content') or s.get('summary', '')}"
             for i, s in enumerate(sources)
         ])
-        
+
         framework_section = f"\n\nRESEARCH FRAMEWORK:\n{framework}" if framework else ""
-        
-        prompt = f"""You are a research analyst. Analyze the following sources to answer this research question:
-        
+
+        prompt = f"""You are a senior research analyst at AyaData AI Solutions — a team that builds AI-powered software products including speech models, computer vision systems, LLM pipelines, and client-facing AI products.
+
 RESEARCH QUESTION: {research_question}
 {framework_section}
 
 SOURCES:
 {sources_text}
 
-Based on these sources, provide a comprehensive research report with:
-1. Executive Summary
-2. Key Findings (bullet points)
-3. Detailed Analysis (Themes, Patterns, Data)
-4. Source Reliability Assessment
+Produce a structured research report. Determine the correct output type from:
+- Market Analysis
+- Technical Analysis  
+- Comparative Analysis
+- Domain Intelligence Report
+- Solution Design Brief
 
-FORMATTING RULES:
-- Use CLEAN formatting. Avoid excessive markdown symbols like '###' or '***'.
-FORMATTING RULES:
-- STRICTLY NO MARKDOWN SYMBOLS for headers or lists (No '#', No '*', No '-').
-- SECTION HEADERS: Use simple Uppercase text on a new line (e.g., EXECUTIVE SUMMARY).
-- LISTS: Use numbered lists only (1., 2., 3.).
-- BOLDING: Do not use bold tags (**text**). Just write the text.
-- CITATIONS: You MUST use standard Markdown links: [Source N](URL).
-  - CORRECT: "Matches [Source 1](https://google.com)" -> Renders as clickable "Source 1".
-- When listing multiple, comma-separate them: ([Source 1](URL), [Source 2](URL)).
-- Keep it looking like a clean, plain text report."""
+State the output type at the top. Then follow the appropriate section structure.
+
+ALWAYS end with an "IMPLICATIONS FOR AI SOLUTIONS" section — specific, actionable, grounded in the team's actual product context (speech models, CV, LLM systems, client product builds).
+
+FORMATTING:
+- Section headers in UPPERCASE
+- Numbered lists only (no bullet dashes)
+- Citations as [Source N](URL) inline
+- No markdown bold (**text**)
+- End with a numbered REFERENCES section"""
 
         try:
-            print(f"📡 Sending analysis request to {self.llm.get_provider_name()}...", flush=True)
             analysis = self.llm.generate(prompt, max_tokens=4000)
-            print(f"✅ Analysis complete ({len(analysis)} chars)", flush=True)
+            print(f"[Analyze] Complete ({len(analysis)} chars)", flush=True)
             return analysis
-            
         except Exception as e:
-            error_msg = f"Error during analysis: {type(e).__name__}: {e}"
-            print(f"❌ {error_msg}")
             import traceback
-            print("📋 Full traceback:")
             traceback.print_exc()
-            return error_msg
-
-
-# Test function
-if __name__ == "__main__":
-    from src.llm_provider import LLMFactory
-    
-    # Test with configured LLM
-    print("Testing ResearchTools...")
-    tools = ResearchTools()
-    
-    # Test search
-    print("\nTesting web search...")
-    results = tools.search_web("AI in education trends 2024", num_results=3)
-    for r in results:
-        print(f"- {r['title']}: {r['url']}")
-    
-    # Test URL fetch
-    if results:
-        print(f"\nTesting URL fetch...")
-        content = tools.fetch_url_content(results[0]['url'])
-        if content:
-            print(f"Fetched {len(content)} characters")
+            return f"Analysis error: {e}"

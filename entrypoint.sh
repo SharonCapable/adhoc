@@ -1,12 +1,17 @@
 #!/bin/sh
 
-# If the GOOGLE_SERVICE_ACCOUNT_JSON env var exists, write it to service-account.json
+# 1. Handle Google Service Account JSON (using Python for safe writing)
 if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
-    echo "Creating service-account.json from environment variable..."
-    echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > /app/service-account.json
+    echo "Writing service-account.json..."
+    python3 -c "import os, json; data = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'); f = open('/app/service-account.json', 'w'); f.write(data); f.close()"
 else
-    echo "WARNING: GOOGLE_SERVICE_ACCOUNT_JSON not set. service-account.json may be missing."
+    echo "WARNING: GOOGLE_SERVICE_ACCOUNT_JSON not set."
 fi
 
-# Run the CMD from the Dockerfile
+# 2. Start the Slack Bot in the background
+echo "Starting Slack Bot..."
+python3 run_slack.py &
+
+# 3. Start the API Server (foreground)
+echo "Starting API Server..."
 exec "$@"
