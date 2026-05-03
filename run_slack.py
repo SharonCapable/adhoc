@@ -31,7 +31,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from src.research_agent import ResearchAgent
 from src.config import Config
-from src.token_store import load_token, has_token, save_token
+from src.token_store import load_token, has_token, save_token, save_pending, get_pending
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,12 +84,11 @@ BASE_URL = os.getenv(
 # GMAIL — save to user's own drafts
 # ─────────────────────────────────────────────────────────────
 
-def save_to_gmail_draft(slack_user_id: str, query: str, findings: str) -> str:
+def save_to_gmail_draft(slack_user_id: str, query: str, summary: str,
+                        to_addr: str = "", subject: str = None) -> str:
     """
-    Save research findings as a Gmail draft in the user's own account.
-
-    Returns the Gmail draft ID on success.
-    Raises ValueError if the user hasn't authorised yet.
+    Save a research summary as a Gmail draft in the user's own account.
+    Returns the Gmail draft ID. Raises ValueError("no_token") if not authorised.
     """
     from googleapiclient.discovery import build
     from google.auth.transport.requests import Request
@@ -98,26 +97,25 @@ def save_to_gmail_draft(slack_user_id: str, query: str, findings: str) -> str:
     if creds is None:
         raise ValueError("no_token")
 
-    # Refresh if expired
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        save_token(slack_user_id, creds)   # persist refreshed token
+        save_token(slack_user_id, creds)
 
     service = build("gmail", "v1", credentials=creds)
 
-    findings_html = findings.replace("\n", "<br>")
+    subject_line = subject or f"[Adhoc Research] {query[:60]}"
+    summary_html = summary.replace("\n", "<br>")
     html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
       <div style="background:#1A56A0;padding:24px;border-radius:8px 8px 0 0;">
-        <h1 style="color:white;margin:0;font-size:22px;">🔬 Research Report</h1>
+        <h1 style="color:white;margin:0;font-size:22px;">🔬 Research Summary</h1>
         <p style="color:#A8CCF0;margin:8px 0 0;">Adhoc · AyaData AI Solutions</p>
       </div>
       <div style="background:#f4f6f9;padding:16px 24px;">
         <p style="margin:0;color:#555;"><strong>Research Query:</strong> {query}</p>
       </div>
-      <div style="padding:24px;border:1px solid #ddd;border-top:none;
-                  line-height:1.7;color:#333;">
-        {findings_html}
+      <div style="padding:24px;border:1px solid #ddd;border-top:none;line-height:1.7;color:#333;">
+        {summary_html}
       </div>
       <div style="background:#f4f6f9;padding:16px 24px;border-radius:0 0 8px 8px;
                   border:1px solid #ddd;border-top:none;font-size:12px;color:#999;">
@@ -127,12 +125,12 @@ def save_to_gmail_draft(slack_user_id: str, query: str, findings: str) -> str:
     """
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[Adhoc Research] {query[:60]}"
-    msg["To"]      = ""    # left blank — user fills this in Gmail before sending
+    msg["Subject"] = subject_line
+    msg["To"]      = to_addr
     msg.attach(MIMEText(html_body, "html"))
 
-    raw     = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    draft   = service.users().drafts().create(
+    raw   = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    draft = service.users().drafts().create(
         userId="me", body={"message": {"raw": raw}}
     ).execute()
 
@@ -227,12 +225,35 @@ TRIVIA_BANK = [
 # ─────────────────────────────────────────────────────────────
 
 trivia_state:    dict = {}   # user_id → { question, attempts, passed }
-pending_research: dict = {}  # action_key → { findings, query, channel, ... }
+pending_research: dict = {}  # in-memory cache; Firestore is the persistent backing store
+
+
+def store_pending(key: str, data: dict):
+    pending_research[key] = data
+    save_pending(key, data)
+
+
+def fetch_pending(key: str) -> dict | None:
+    if key in pending_research:
+        return pending_research[key]
+    data = get_pending(key)
+    if data:
+        pending_research[key] = data   # warm the cache
+    return data
 
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────
+
+_GREETINGS = {"hello", "hi", "hey", "howdy", "hiya", "sup", "yo", "greetings",
+               "good morning", "good afternoon", "good evening", "good day"}
+
+def is_greeting(text: str) -> bool:
+    import re as _re
+    clean = _re.sub(r"[^\w\s]", "", text.lower()).strip()
+    return clean in _GREETINGS
+
 
 def has_passed_trivia(user_id: str) -> bool:
     # Check in-memory first, then Firestore
@@ -282,7 +303,7 @@ def send_trivia(client, channel: str, user_id: str):
 
 
 def research_blocks(query: str, findings: str, action_key: str) -> list:
-    preview = findings[:600] + ("..." if len(findings) > 600 else "")
+    preview = (findings[:600] + ("..." if len(findings) > 600 else "")) or "_No findings were generated._"
     return [
         {"type": "header",
          "text": {"type": "plain_text", "text": "🔬 Research Complete", "emoji": True}},
@@ -300,10 +321,10 @@ def research_blocks(query: str, findings: str, action_key: str) -> list:
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "📧 Save to Gmail Draft", "emoji": True},
+                    "text": {"type": "plain_text", "text": "📧 Construct Gmail Draft", "emoji": True},
                     "style": "primary",
                     "value": action_key,
-                    "action_id": "action_send_email"
+                    "action_id": "action_construct_draft"
                 },
                 {
                     "type": "button",
@@ -455,9 +476,8 @@ def handle_mention(event, say, client):
         send_trivia(client, channel, user_id)
         return
 
-    # If it's just a greeting, don't start research
-    if query.lower() in ["hello", "hi", "hey"]:
-        say(text=f"Hello <@{user_id}>! I'm ready for research. What's on your mind?")
+    if is_greeting(query):
+        say(text=f"Hello <@{user_id}>! :wave: You're all set — just ask me a research question.")
         return
 
     # Post initial message and handle the rest in a THREAD to avoid channel noise
@@ -469,27 +489,36 @@ def handle_mention(event, say, client):
 
     def do_research():
         try:
-            # We'll simulate log updates in the thread
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="🔍 Connecting to Gemini 2.5 + Google Search Index...")
-            
+            client.chat_postMessage(channel=channel, thread_ts=thread_ts,
+                                    text="🔍 Connecting to Gemini 2.5 + Google Search Index...")
+
             result   = research_agent.run(query)
-            findings = result.get("research_findings", "No findings generated.")
-            key      = f"{user_id}_{thread_ts}"
-            pending_research[key] = {
-                "findings":    findings,
-                "query":       query,
-                "channel":     channel,
-                "output_path": result.get("output_path", ""),
-                "user_id":     user_id,
-            }
-            
-            # Post final results as a new message in the thread
-            client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                blocks=research_blocks(query, findings, key),
-                text=f"Research complete: {query}"
-            )
+            findings = result.get("research_findings", "")
+            status   = result.get("status", "")
+            success  = bool(findings) and not findings.startswith("Error during analysis:")
+
+            if success:
+                key = f"{user_id}_{thread_ts}"
+                store_pending(key, {
+                    "findings":    findings,
+                    "query":       query,
+                    "channel":     channel,
+                    "output_path": result.get("output_path", ""),
+                    "user_id":     user_id,
+                })
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    blocks=research_blocks(query, findings, key),
+                    text=f"Research complete: {query}"
+                )
+            else:
+                detail = findings or f"Status: {status}"
+                client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=f":x: *Research failed for:* _{query}_\n\n`{detail[:400]}`"
+                )
         except Exception as e:
             logger.error(f"Research error: {e}", exc_info=True)
             client.chat_postMessage(channel=channel, thread_ts=thread_ts,
@@ -499,19 +528,55 @@ def handle_mention(event, say, client):
 
 
 # ─────────────────────────────────────────────────────────────
-# GMAIL DRAFT — main action handler
+# GMAIL DRAFT — modal-based construct + save flow
 # ─────────────────────────────────────────────────────────────
 
-@app.action("action_send_email")
-def handle_save_draft(ack, body, client):
-    """
-    User clicked 'Save to Gmail Draft'.
-    If they've already connected Gmail → save draft immediately.
-    If not → show sign-in prompt (ephemeral, only visible to them).
-    """
+def _open_draft_modal(client, trigger_id: str, action_key: str, data: dict):
+    """Open the Slack modal so the user can preview/edit before saving to Gmail."""
+    query   = data.get("query", "")
+    preview = data.get("findings", "")[:2000]
+    client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": f"gmail_draft_modal_{action_key}",
+            "title": {"type": "plain_text", "text": "Construct Gmail Draft"},
+            "submit": {"type": "plain_text", "text": "Save to Drafts"},
+            "close":  {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn",
+                             "text": f"_Research:_ *{query[:80]}*\n\nEdit the fields below, then click *Save to Drafts*."}
+                },
+                {
+                    "type": "input", "block_id": "to_block", "optional": True,
+                    "label": {"type": "plain_text", "text": "To (optional — fill in Gmail before sending)"},
+                    "element": {"type": "plain_text_input", "action_id": "to_input",
+                                "placeholder": {"type": "plain_text", "text": "colleague@example.com"}}
+                },
+                {
+                    "type": "input", "block_id": "subject_block",
+                    "label": {"type": "plain_text", "text": "Subject"},
+                    "element": {"type": "plain_text_input", "action_id": "subject_input",
+                                "initial_value": f"[Adhoc Research] {query[:60]}"}
+                },
+                {
+                    "type": "input", "block_id": "summary_block",
+                    "label": {"type": "plain_text", "text": "Summary (edit before saving)"},
+                    "element": {"type": "plain_text_input", "action_id": "summary_input",
+                                "multiline": True, "initial_value": preview}
+                },
+            ]
+        }
+    )
+
+
+@app.action("action_construct_draft")
+def handle_construct_draft(ack, body, client):
     ack()
     action_key = body["actions"][0]["value"]
-    data       = pending_research.get(action_key)
+    data       = fetch_pending(action_key)
     channel    = body["channel"]["id"]
     user_id    = body["user"]["id"]
 
@@ -521,13 +586,10 @@ def handle_save_draft(ack, body, client):
         return
 
     if has_token(user_id):
-        # Already authorised — save draft right away
-        _do_save_draft(client, channel, user_id, data)
+        _open_draft_modal(client, body["trigger_id"], action_key, data)
     else:
-        # First time — prompt sign-in
         client.chat_postEphemeral(
-            channel=channel,
-            user=user_id,
+            channel=channel, user=user_id,
             blocks=gmail_signin_blocks(action_key, user_id),
             text="Connect your Gmail to save research as a draft."
         )
@@ -535,13 +597,10 @@ def handle_save_draft(ack, body, client):
 
 @app.action("gmail_save_after_auth")
 def handle_save_after_auth(ack, body, client):
-    """
-    User clicked 'I've signed in — save draft now' after completing OAuth.
-    Re-checks token and saves.
-    """
+    """User clicked 'I've signed in' after OAuth — open modal if token is now present."""
     ack()
     action_key = body["actions"][0]["value"]
-    data       = pending_research.get(action_key)
+    data       = fetch_pending(action_key)
     channel    = body["channel"]["id"]
     user_id    = body["user"]["id"]
 
@@ -551,51 +610,58 @@ def handle_save_after_auth(ack, body, client):
         return
 
     if has_token(user_id):
-        _do_save_draft(client, channel, user_id, data)
+        _open_draft_modal(client, body["trigger_id"], action_key, data)
     else:
         client.chat_postEphemeral(
             channel=channel, user=user_id,
-            text=(
-                ":x: Couldn't find your Gmail auth. "
-                "Make sure you completed the sign-in in the browser tab that opened."
-            )
+            text=":x: Couldn't find your Gmail auth. Make sure you completed sign-in in the browser tab."
         )
 
 
 @app.action("gmail_signin_link")
 def handle_signin_link(ack, **_):
-    # Button with a URL — just ack, the browser handles the redirect
     ack()
 
 
-def _do_save_draft(client, channel: str, user_id: str, data: dict):
-    """Save the research draft and post a confirmation to the channel."""
+@app.view(re.compile("gmail_draft_modal_.*"))
+def handle_gmail_draft_submit(ack, body, client):
+    ack()
+    action_key = body["view"]["callback_id"].replace("gmail_draft_modal_", "")
+    values     = body["view"]["state"]["values"]
+    user_id    = body["user"]["id"]
+
+    to_addr = (values.get("to_block", {}).get("to_input", {}).get("value") or "").strip()
+    subject = values["subject_block"]["subject_input"]["value"]
+    summary = values["summary_block"]["summary_input"]["value"]
+
+    data    = fetch_pending(action_key)
+    channel = data.get("channel") if data else None
+
     try:
-        draft_id = save_to_gmail_draft(
+        save_to_gmail_draft(
             slack_user_id=user_id,
-            query=data["query"],
-            findings=data["findings"],
+            query=data["query"] if data else "",
+            summary=summary,
+            to_addr=to_addr,
+            subject=subject,
         )
-        client.chat_postMessage(
-            channel=channel,
-            text=(
-                f":white_check_mark: <@{user_id}> Research saved to your *Gmail Drafts*.\n"
-                f"Open Gmail → Drafts → *[Adhoc Research] {data['query'][:50]}* "
-                f"→ add recipients and send when ready."
+        if channel:
+            client.chat_postMessage(
+                channel=channel,
+                text=(
+                    f":white_check_mark: <@{user_id}> Draft saved to *Gmail Drafts*.\n"
+                    f"Open Gmail → Drafts → _{subject[:60]}_ → add recipients and send."
+                )
             )
-        )
     except ValueError as e:
-        if "no_token" in str(e):
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=":x: Gmail not connected. Click 'Save to Gmail Draft' again to sign in."
-            )
+        if "no_token" in str(e) and channel:
+            client.chat_postEphemeral(channel=channel, user=user_id,
+                                       text=":x: Gmail session expired. Click the button again to reconnect.")
     except Exception as e:
         logger.error(f"Draft save failed: {e}", exc_info=True)
-        client.chat_postEphemeral(
-            channel=channel, user=user_id,
-            text=f":x: Draft save failed: `{str(e)[:200]}`"
-        )
+        if channel:
+            client.chat_postEphemeral(channel=channel, user=user_id,
+                                       text=f":x: Draft save failed: `{str(e)[:200]}`")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -606,7 +672,7 @@ def _do_save_draft(client, channel: str, user_id: str, data: dict):
 def handle_download_doc(ack, body, client):
     ack()
     action_key = body["actions"][0]["value"]
-    data       = pending_research.get(action_key)
+    data       = fetch_pending(action_key)
     channel    = body["channel"]["id"]
     user_id    = body["user"]["id"]
     if not data:
@@ -625,7 +691,7 @@ def handle_download_doc(ack, body, client):
 def handle_download_md(ack, body, client):
     ack()
     action_key = body["actions"][0]["value"]
-    data       = pending_research.get(action_key)
+    data       = fetch_pending(action_key)
     channel    = body["channel"]["id"]
     user_id    = body["user"]["id"]
     if not data:
@@ -648,7 +714,7 @@ def handle_download_md(ack, body, client):
 def handle_followup(ack, body, client):
     ack()
     action_key = body["actions"][0]["value"]
-    data       = pending_research.get(action_key, {})
+    data       = fetch_pending(action_key) or {}
     client.views_open(
         trigger_id=body["trigger_id"],
         view={
@@ -693,11 +759,11 @@ def handle_followup_submit(ack, body, client):
             result   = research_agent.run(combined)
             findings = result.get("research_findings", "No findings.")
             new_key  = f"{user_id}_followup_{action_key}"
-            pending_research[new_key] = {
+            store_pending(new_key, {
                 "findings": findings, "query": followup_q,
                 "channel": channel, "user_id": user_id,
                 "output_path": result.get("output_path", ""),
-            }
+            })
             client.chat_postMessage(
                 channel=channel,
                 blocks=research_blocks(followup_q, findings, new_key),

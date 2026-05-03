@@ -86,5 +86,36 @@ def has_token(slack_user_id: str) -> bool:
     except Exception:
         return False
 
+PENDING_COLLECTION = "pending_research"
+
+def save_pending(key: str, data: dict) -> None:
+    db = _get_db()
+    if not db:
+        return
+    try:
+        db.collection(PENDING_COLLECTION).document(key).set(data)
+    except Exception as e:
+        logger.warning(f"[PendingStore] Save failed: {e}")
+
+def get_pending(key: str) -> Optional[dict]:
+    db = _get_db()
+    if not db:
+        return None
+    try:
+        doc = db.collection(PENDING_COLLECTION).document(key).get()
+        return doc.to_dict() if doc.exists else None
+    except Exception as e:
+        logger.warning(f"[PendingStore] Read failed: {e}")
+        return None
+
+def delete_pending(key: str) -> None:
+    db = _get_db()
+    if not db:
+        return
+    try:
+        db.collection(PENDING_COLLECTION).document(key).delete()
+    except Exception:
+        pass
+
 # Export the db object for other modules
 db = _get_db()

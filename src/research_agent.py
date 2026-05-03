@@ -9,6 +9,7 @@ from src.google_drive_tool import GoogleDriveTool
 from src.research_tools import ResearchTools
 from src.config import Config
 from src.qa_validator import QAValidator
+from src.llm_provider import get_llm_provider
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -47,7 +48,8 @@ class ResearchAgent:
         
         # Initialize research tools
         self.drive_tool = GoogleDriveTool(service_account_file=service_account_file)
-        self.research_tools = ResearchTools(llm_provider)
+        llm = get_llm_provider() if llm_provider is None else llm_provider
+        self.research_tools = ResearchTools(llm)
         self.graph = self._build_graph()
     
     def _init_google_drive_with_service_account(self):
@@ -270,8 +272,8 @@ class ResearchAgent:
         
         try:
             findings = self.research_tools.analyze_sources(
-                sources,
                 query,
+                sources,
                 framework
             )
             

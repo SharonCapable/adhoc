@@ -32,7 +32,9 @@ app.add_middleware(
 )
 
 # ── OAuth config ────────────────────────────────────────────────────────────
-GMAIL_SCOPES    = ["https://www.googleapis.com/auth/gmail.drafts"]
+# Stores the Flow object between /start and /callback so PKCE code_verifier is preserved
+_oauth_flows: dict = {}
+GMAIL_SCOPES    = ["https://www.googleapis.com/auth/gmail.compose"]
 CLIENT_ID       = os.getenv("GMAIL_CLIENT_ID", "")
 CLIENT_SECRET   = os.getenv("GMAIL_CLIENT_SECRET", "")
 # Must match exactly what you set in GCP OAuth credentials → Authorised redirect URIs
@@ -112,13 +114,15 @@ async def gmail_auth_start(request: Request):
         redirect_uri=REDIRECT_URI,
     )
 
-    # state carries the Slack user_id through the OAuth round-trip
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
-        prompt="consent",          # force consent so we always get a refresh_token
-        state=slack_user_id,       # comes back in the callback
+        prompt="consent",
+        state=slack_user_id,
     )
+
+    # Keep the flow object so the callback can reuse its code_verifier (PKCE)
+    _oauth_flows[slack_user_id] = flow
 
     return RedirectResponse(url=auth_url)
 
@@ -157,20 +161,24 @@ async def gmail_auth_callback(request: Request):
         ))
 
     try:
-        flow = Flow.from_client_config(
-            client_config={
-                "web": {
-                    "client_id":     CLIENT_ID,
-                    "client_secret": CLIENT_SECRET,
-                    "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri":     "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [REDIRECT_URI],
-                }
-            },
-            scopes=GMAIL_SCOPES,
-            redirect_uri=REDIRECT_URI,
-            state=slack_user_id,
-        )
+        # Reuse the stored flow so the PKCE code_verifier matches the original request
+        flow = _oauth_flows.pop(slack_user_id, None)
+        if flow is None:
+            flow = Flow.from_client_config(
+                client_config={
+                    "web": {
+                        "client_id":     CLIENT_ID,
+                        "client_secret": CLIENT_SECRET,
+                        "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri":     "https://oauth2.googleapis.com/token",
+                        "redirect_uris": [REDIRECT_URI],
+                    }
+                },
+                scopes=GMAIL_SCOPES,
+                redirect_uri=REDIRECT_URI,
+                state=slack_user_id,
+            )
+        flow.redirect_uri = REDIRECT_URI
         flow.fetch_token(code=code)
         creds = flow.credentials
 

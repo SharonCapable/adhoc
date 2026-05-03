@@ -13,7 +13,7 @@ class GeminiGroundedSearch:
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
+        self.client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
         self.model_id = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 
     def search(self, query: str, num_results: int = 5) -> List[Dict]:
@@ -69,7 +69,7 @@ class ResearchTools:
         gemini_key = os.getenv("GEMINI_API_KEY")
         self.searcher = GeminiGroundedSearch(gemini_key)
 
-    def fetch_url_content(self, url: str) -> str:
+    def fetch_url_content(self, url: str, max_length: int = 5000) -> str:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers, timeout=10)
@@ -83,8 +83,8 @@ class ResearchTools:
         except:
             return ""
 
-    def search_web(self, query: str) -> List[Dict]:
-        return self.searcher.search(query)
+    def search_web(self, query: str, num_results: int = 5) -> List[Dict]:
+        return self.searcher.search(query, num_results=num_results)
 
     def analyze_sources(self, query: str, sources: List[Dict], framework: str) -> str:
         source_text = ""
